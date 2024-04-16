@@ -1,8 +1,8 @@
 extern crate core_affinity;
 
-use core_affinity::CoreId;
 use super::pagesizes;
 use color_eyre::eyre::{bail, ensure, Result};
+use core_affinity::CoreId;
 use std::{
     collections::{HashMap, HashSet, LinkedList},
     hash::Hash,
@@ -10,6 +10,43 @@ use std::{
     thread::sleep,
     time::Instant,
 };
+// global stats collection
+#[cfg(feature = "statscollection")]
+use once_cell::sync::Lazy;
+#[cfg(feature = "statscollection")]
+pub static COPY_STATS: Lazy<Mutex<CopyStats>> = Lazy::new(|| {
+    let stats = CopyStats::default();
+    Mutex::new(stats)
+});
+
+#[cfg(feature = "statscollection")]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct CopyStats {
+    lock_contention_count: usize,
+    zero_copy_miss_count: usize,
+    zero_copy_hit_count: usize,
+}
+
+#[cfg(feature = "statscollection")]
+impl CopyStats {
+    pub fn reset(&mut self) {
+        self.lock_contention_count = 0;
+        self.zero_copy_miss_count = 0;
+        self.zero_copy_hit_count = 0;
+    }
+
+    pub fn lock_contention(&mut self) {
+        self.lock_contention_count += 1;
+    }
+
+    pub fn zero_copy_miss(&mut self) {
+        self.zero_copy_miss_count += 1;
+    }
+
+    pub fn zero_copy_hit(&mut self) {
+        self.zero_copy_hit_count += 1;
+    }
+}
 
 pub const PIN_UNPIN_CORE: usize = 3;
 
@@ -601,14 +638,14 @@ where
             segment_size <= pinning_limit,
             "Segment size cannot be larger than pinning limit."
         );
-        
-        if no_algorithm == false{
+
+        if no_algorithm == false {
             ensure!(
                 segment_size == 0 && pinning_limit == 0 || pinning_limit % segment_size == 0,
                 "Pinning limit must be a multiple of segment size"
             );
         }
-        
+
         tracing::info!(
             pin_on_demand = pin_on_demand,
             no_algorithm = no_algorithm,
@@ -986,18 +1023,45 @@ where
                                 mutex.1 += 1;
                                 // Checking for pinned segment
                                 if mutex.2 {
+                                    // we think this case should never occur
+                                    // TODO: refactor code to remove this
+                                    #[cfg(feature = "stats_collection")]
+                                    {
+                                        let mut copy_stats = COPY_STATS.lock().unwrap();
+                                        copy_stats.lock_contention();
+                                    }
                                     return Ok(None);
                                 }
                                 // return segment id and io info to caller
                                 let slab_id = segment_id.0;
+
+                                #[cfg(feature = "stats_collection")]
+                                {
+                                    let mut copy_stats = COPY_STATS.lock().unwrap();
+                                    copy_stats.zero_copy_hit();
+                                }
+
                                 return Ok(Some((slab_id, mutex.0.get_io_info())));
                             } else {
                                 tracing::debug!("Segment {:?} not pinned", segment_id);
+
+                                #[cfg(feature = "stats_collection")]
+                                {
+                                    let mut copy_stats = COPY_STATS.lock().unwrap();
+                                    copy_stats.zero_copy_miss();
+                                }
+
                                 // not pinned
                                 return Ok(None);
                             }
                         } else {
                             tracing::debug!("Not able to get lock for segment {:?}", segment_id);
+
+                            #[cfg(feature = "stats_collection")]
+                            {
+                                let mut copy_stats = COPY_STATS.lock().unwrap();
+                                copy_stats.lock_contention();
+                            }
                             // someone else has lock
                             return Ok(None);
                         }

@@ -15,8 +15,11 @@ lru="0.8.1"
 rand="0.8.5"
 # wtinylfu="*"
 demikernel = {git = "https://github.com/deeptir18/demikernel", branch = "perftools_public", version = "1", features = ["profiler"], optional = true}
+once_cell = { version = "1.19.0", optional = true }
+
 
 
 [features]
 default = []
 profiler = ["demikernel"]
+statscollection = ["once_cell"]
