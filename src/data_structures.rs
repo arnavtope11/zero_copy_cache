@@ -1025,7 +1025,7 @@ where
                                 if mutex.2 {
                                     // we think this case should never occur
                                     // TODO: refactor code to remove this
-                                    #[cfg(feature = "stats_collection")]
+                                    #[cfg(feature = "statscollection")]
                                     {
                                         let mut copy_stats = COPY_STATS.lock().unwrap();
                                         copy_stats.lock_contention();
@@ -1035,7 +1035,7 @@ where
                                 // return segment id and io info to caller
                                 let slab_id = segment_id.0;
 
-                                #[cfg(feature = "stats_collection")]
+                                #[cfg(feature = "statscollection")]
                                 {
                                     let mut copy_stats = COPY_STATS.lock().unwrap();
                                     copy_stats.zero_copy_hit();
@@ -1045,7 +1045,7 @@ where
                             } else {
                                 tracing::debug!("Segment {:?} not pinned", segment_id);
 
-                                #[cfg(feature = "stats_collection")]
+                                #[cfg(feature = "statscollection")]
                                 {
                                     let mut copy_stats = COPY_STATS.lock().unwrap();
                                     copy_stats.zero_copy_miss();
@@ -1057,7 +1057,7 @@ where
                         } else {
                             tracing::debug!("Not able to get lock for segment {:?}", segment_id);
 
-                            #[cfg(feature = "stats_collection")]
+                            #[cfg(feature = "statscollection")]
                             {
                                 let mut copy_stats = COPY_STATS.lock().unwrap();
                                 copy_stats.lock_contention();
