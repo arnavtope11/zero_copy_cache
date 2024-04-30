@@ -570,7 +570,7 @@ where
     /// Whether no algorithm (=vanilla cornflakes) version
     no_algorithm: bool,
     /// Whether to pin on demand,
-    pin_on_demand: bool,
+    pub pin_on_demand: bool,
     /// Time to sleep between pins in pin-unpin thread.
     sleep_duration: std::time::Duration,
     /// Unlocked (initial segment) mappings, for no algorithm case
@@ -944,21 +944,47 @@ where
         }
     }
 
-    fn record_and_pin_on_demand(
+    fn record_access_for_pin_on_demand(
         &mut self,
         segment_id: (Slab::SlabId, usize),
+    ) -> Option<(Slab::SlabId, usize)> {
+        let mut cache_builder = self
+            .cache_builder
+            .lock()
+            .expect("Could not lock cache builder");
+        cache_builder.update_access(segment_id);
+        cache_builder.insert_and_evict(segment_id)
+    }
+
+    fn pin_on_demand(
+        &mut self,
+        eviction_id: Option<(Slab::SlabId, usize)>,
         priv_info: Slab::PrivateInfo,
     ) -> Result<Option<(Slab::SlabId, Slab::IOInfo)>> {
-        let seg_id_option = {
-            let mut cache_builder = self
-                .cache_builder
-                .lock()
-                .expect("Could not lock cache builder");
-            cache_builder.update_access(segment_id);
-            cache_builder.insert_and_evict(segment_id)
-        };
-        if let Some(seg_id) = seg_id_option {
-            self.unpin_segment(&seg_id)?;
+        if let Some(seg_id) = eviction_id {
+            tracing::info!(id =? id, "Unpinning");
+            let segment = self.segments.get(seg_id);
+            match segment {
+                Some(extracted_segment) => loop {
+                    let mut locked_segment = extracted_segment.lock().unwrap();
+                    locked_segment.2 = true;
+                    if locked_segment.1 == 0 {
+                        tracing::info!(
+                            "Drained completions and unpinning segment: {:?}",
+                            locked_segment
+                        );
+                        locked_segment.0.unregister();
+                        locked_segment.2 = false;
+                        break;
+                    } else {
+                        return None;
+                    }
+                },
+                None => {
+                    tracing::error!("Segment ID: {:?} Not found", id);
+                }
+            }
+            Ok(())
         };
 
         // pin new segment
@@ -1002,9 +1028,6 @@ where
         match self.get_segment_id(buf) {
             Some(segment_id) => {
                 tracing::debug!("IO was in segment: {:?}", segment_id);
-                if self.pin_on_demand {
-                    return self.record_and_pin_on_demand(segment_id, priv_info);
-                }
                 // update access to segment
                 self.cache_builder
                     .lock()
