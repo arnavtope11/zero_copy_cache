@@ -956,14 +956,21 @@ where
         cache_builder.insert_and_evict(segment_id)
     }
 
-    fn pin_on_demand(
+    fn check_for_active_io_andpin_on_demand(
         &mut self,
-        eviction_id: Option<(Slab::SlabId, usize)>,
+        eviction_id_option: Option<(Slab::SlabId, usize)>,
+        segment_id: (Slab::SlabId, usize),
         priv_info: Slab::PrivateInfo,
-    ) -> Result<Option<(Slab::SlabId, Slab::IOInfo)>> {
-        if let Some(seg_id) = eviction_id {
-            tracing::info!(id =? id, "Unpinning");
-            let segment = self.segments.get(seg_id);
+    ) -> Option<(Slab::SlabId, Slab::IOInfo)> {
+        if let Some(seg_id) = eviction_id_option {
+            tracing::info!(eviction_id_option =? eviction_id_option, "Unpinning");
+            let eviction_id = match eviction_id_option {
+                Some(id) => id,
+                None => { 
+                    unreachable!(); // correct? what to do if not?
+                }
+            };
+            let segment = self.segments.get(&eviction_id);
             match segment {
                 Some(extracted_segment) => loop {
                     let mut locked_segment = extracted_segment.lock().unwrap();
@@ -981,11 +988,13 @@ where
                     }
                 },
                 None => {
-                    tracing::error!("Segment ID: {:?} Not found", id);
+                    tracing::error!("Segment ID: {:?} Not found", eviction_id);
                 }
             }
             Ok(())
-        };
+        } else {
+            unreachable!();
+        }
 
         // pin new segment
         let io_info = self.pin_segment(&segment_id, &priv_info)?;
