@@ -687,13 +687,13 @@ where
         id: &(Slab::SlabId, usize),
         priv_info: &Slab::PrivateInfo,
     ) -> Result<Slab::IOInfo> {
-        tracing::info!(id =? id, "Pinning");
+        //racing::info!(id =? id, "Pinning");
         let segment = self.segments.get(id);
         match segment {
             Some(extracted_segment) => {
                 let mut locked_segment = extracted_segment.lock().unwrap();
                 locked_segment.0.register(priv_info);
-                tracing::debug!("Pinning segment: {:?}", locked_segment);
+                //tracing::debug!("Pinning segment: {:?}", locked_segment);
                 return Ok(locked_segment.0.get_io_info());
             }
             None => {
@@ -703,24 +703,24 @@ where
     }
 
     fn unpin_segment(&mut self, id: &(Slab::SlabId, usize)) -> Result<()> {
-        tracing::info!(id =? id, "Unpinning");
+        //tracing::info!(id =? id, "Unpinning");
         let segment = self.segments.get(id);
         match segment {
             Some(extracted_segment) => loop {
                 let mut locked_segment = extracted_segment.lock().unwrap();
                 locked_segment.2 = true;
                 if locked_segment.1 == 0 {
-                    tracing::info!(
-                        "Drained completions and unpinning segment: {:?}",
-                        locked_segment
-                    );
+                    //tracing::info!(
+                    //    "Drained completions and unpinning segment: {:?}",
+                    //    locked_segment
+                    //);
                     locked_segment.0.unregister();
                     locked_segment.2 = false;
                     break;
                 }
             },
             None => {
-                tracing::error!("Segment ID: {:?} Not found", id);
+                //tracing::error!("Segment ID: {:?} Not found", id);
             }
         }
         Ok(())
@@ -937,10 +937,17 @@ where
     }
 
     pub fn record_io_completion(&mut self, addr: &[u8]) {
+        //tracing::info!("Recording IO completion for address: addr: {:?}", addr.as_ptr());
         if let Some(segment_id) = self.get_segment_id(addr) {
+            //tracing::info!("IO completed for segment {:?}", segment_id);
             if let Some(segment_arc) = self.segments.get(&segment_id) {
                 segment_arc.lock().unwrap().1 -= 1;
+                //tracing::info!("decremented active IO count");
+            } else {
+                //tracing::info!("unable to find segment_id:{:?}", segment_id);
             }
+        } else {
+            //tracing::info!("Unable to find address: addr: {:?}", addr.as_ptr());
         }
     }
 
@@ -962,22 +969,22 @@ where
         segment_id: (Slab::SlabId, usize),
         priv_info: Slab::PrivateInfo,
     ) -> Result<Option<(Slab::SlabId, Slab::IOInfo)>> {
-        tracing::info!(eviction_id_option =? eviction_id_option, "Unpinning");
+        //tracing::info!(eviction_id_option =? eviction_id_option, "On-Demand Unpinning");
         if let Some(eviction_id) = eviction_id_option {
             let segment = self.segments.get(&eviction_id);
             match segment {
-                Some(extracted_segment) => loop {
+                Some(extracted_segment) => {
                     let mut locked_segment = extracted_segment.lock().unwrap();
                     locked_segment.2 = true;
                     if locked_segment.1 == 0 {
-                        tracing::info!(
-                            "Drained completions and unpinning segment: {:?}",
-                            locked_segment
-                        );
+                        //tracing::info!(
+                        //    "Drained completions and unpinning segment: {:?}",
+                        //    locked_segment
+                        //);
                         locked_segment.0.unregister();
                         locked_segment.2 = false;
-                        break;
                     } else {
+                        //tracing::info!("locked_segment.1 == {:?}", locked_segment.1);
                         return Ok(None);
                     }
                 },
@@ -986,7 +993,7 @@ where
                 }
             }
         } else {
-            tracing::info!("Nothing to evict");
+            //tracing::info!("Nothing to evict");
         }
 
         // pin new segment
